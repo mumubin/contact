@@ -1,0 +1,195 @@
+package main
+
+import (
+    "fmt"
+    "github.com/hyperledger/fabric/core/chaincode/shim"
+    pb "github.com/hyperledger/fabric/protos/peer"
+    "encoding/json"
+)
+
+// 通信录chaincode
+type ContactChaincode struct {
+}
+const ALL_CONTACT = "contactInfo"
+type ContactInfo struct {
+    //姓名
+    Name string
+    //头像
+    Url string
+    //手机号
+    Mobile string
+    //部门
+    Department string
+    //邮箱地址
+    Email string
+    //通信地址
+    Address string
+    //备注
+    Remark string
+}
+
+var ContactMap map[string]ContactInfo
+
+// 初始化自己的通信录信息至map
+func (t *ContactChaincode) Init(stub shim.ChaincodeStubInterface) pb.Response {
+    //从数据库获取ContactMap
+    contactMapBytes, err := stub.GetState(ALL_CONTACT)
+    if err != nil {
+        return shim.Error("Failed to get state")
+    }
+    if contactMapBytes == nil {
+        ContactMap = make(map[string]ContactInfo)
+    } else {
+        json.Unmarshal(contactMapBytes, &ContactMap)
+    }
+    err = putStateContactMap(err, stub)
+    if err != nil {
+        return shim.Error("put state err ")
+    }
+    return shim.Success(nil)
+}
+//更新通信录通信录集
+func putStateContactMap(err error, stub shim.ChaincodeStubInterface) error {
+    data, err := json.Marshal(ContactMap)
+    err = stub.PutState(ALL_CONTACT, []byte(string(data)))
+    return err
+}
+
+//更新自己的信息
+func (t *ContactChaincode) update(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    contactMapBytes, err := stub.GetState(ALL_CONTACT)
+    if err != nil {
+        return shim.Error("Failed to get state")
+    }
+    if contactMapBytes == nil {
+        ContactMap = make(map[string]ContactInfo)
+    } else {
+        json.Unmarshal(contactMapBytes, &ContactMap)
+    }
+
+    publicKeyByte, _ := stub.GetCreator()
+    publicKey := string(publicKeyByte[:])
+    if len(args) != 7 {
+        return shim.Error("Incorrect number of arguments. Expecting 7")
+    }
+    info := ContactInfo{args[0], args[1], args[2], args[3], args[4], args[5], args[6]}
+    ContactMap[publicKey] = info
+    data, _ := json.Marshal(ContactMap)
+    fmt.Printf("info = %v", data)
+    err = stub.PutState("contactInfo", []byte(string(data)))
+    if err != nil {
+        return shim.Error("put state err ")
+    }
+    fmt.Printf("update contact Info publicKey = %s, info = %v \n", publicKey, info)
+    return shim.Success(nil)
+}
+
+//删除自己的信息
+func (t *ContactChaincode) delete(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    contactMapBytes, err := stub.GetState(ALL_CONTACT)
+    if err != nil {
+        return shim.Error("Failed to get state")
+    }
+    if contactMapBytes == nil {
+        ContactMap = make(map[string]ContactInfo)
+    } else {
+        json.Unmarshal(contactMapBytes, &ContactMap)
+    }
+
+    publicKeyByte, _ := stub.GetCreator()
+    publicKey := string(publicKeyByte[:])
+    if len(args) != 7 {
+        return shim.Error("Incorrect number of arguments. Expecting 7")
+    }
+    oldInfo := ContactMap[publicKey]
+    delete(ContactMap,publicKey)
+    data, _ := json.Marshal(ContactMap)
+    fmt.Printf("info = %v", data)
+    err = stub.PutState("contactInfo", []byte(string(data)))
+    if err != nil {
+        return shim.Error("put state err ")
+    }
+    fmt.Printf("delelte contact Info publicKey = %s, info = %v \n", publicKey, oldInfo)
+    return shim.Success(nil)
+}
+
+//新增自己的通信信息
+func (t *ContactChaincode) new(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    //从数据库获取ContactMap
+    contactMapBytes, err := stub.GetState(ALL_CONTACT)
+    if err != nil {
+        return shim.Error("Failed to get state")
+    }
+    if contactMapBytes == nil {
+        ContactMap = make(map[string]ContactInfo)
+    } else {
+        json.Unmarshal(contactMapBytes, &ContactMap)
+    }
+
+    publicKeyByte, _ := stub.GetCreator()
+    publicKey := string(publicKeyByte[:])
+    value, ok := ContactMap[publicKey]
+    if ok {
+        fmt.Printf("publicKey = %s already has value = %v", publicKey, value)
+        return shim.Error("publicKey already has value info ")
+    }
+    if len(args) != 7 {
+        return shim.Error("Incorrect number of arguments. Expecting 7")
+    }
+
+    info := ContactInfo{args[0], args[1], args[2], args[3], args[4], args[5], args[6]}
+    ContactMap[publicKey] = info
+    err = putStateContactMap(err, stub)
+    if err != nil {
+        return shim.Error("put state err ")
+    }
+    return shim.Success(nil)
+}
+
+//查询整个通信录
+func (t *ContactChaincode) queryAll(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    bytes, err := stub.GetState("contactInfo")
+    if err != nil {
+        jsonResp := "{\"Error\":\"Failed to get state for " + "contactInfo" + "\"}"
+        return shim.Error(jsonResp)
+    }
+
+    if bytes == nil {
+        jsonResp := "{\"Error\":\"Nil amount for " + "contactInfo" + "\"}"
+        return shim.Error(jsonResp)
+    }
+
+    json.Unmarshal(bytes, &ContactMap)
+    fmt.Printf("Query Response:%s\n", ContactMap)
+    return shim.Success(bytes)
+}
+//删改查自己信息
+func (t *ContactChaincode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
+    fmt.Println("contact Invoke")
+    function, args := stub.GetFunctionAndParameters()
+    if function == "update" {
+        // 更新自己的通信录信息
+        return t.update(stub, args)
+    } else if function == "delete" {
+        // 删除自己的通信录
+        return t.delete(stub, args)
+    } else if function == "queryAll" {
+        // 查询所有的通信录
+        return t.queryAll(stub, args)
+    }  else if function == "new" {
+        // 查询所有的通信录
+        return t.new(stub, args)
+    }
+
+    return shim.Error("Invalid invoke function name. Expecting \"invoke\" \"delete\" \"query\"")
+
+}
+
+
+
+func main() {
+    err := shim.Start(new(ContactChaincode))
+    if err != nil {
+        fmt.Printf("Error starting Simple chaincode: %s", err)
+    }
+}
